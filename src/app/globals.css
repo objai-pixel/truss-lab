@@ -286,7 +286,8 @@ input[type="text"], input:not([type="range"]) {
   color: var(--bad);
 }
 
-.quiz-layout { display: grid; gap: 14px; padding: 0 8px; }
+.quiz-layout, .drill-quiz { display: grid; gap: 14px; }
+.quiz-layout { padding: 0 8px; }
 .quiz-score { justify-content: space-between; }
 .card-row, .sort-board, .speed-board, .member-quiz { display: grid; gap: 12px; }
 .card-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }

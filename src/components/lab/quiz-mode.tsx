@@ -74,11 +74,11 @@ export function QuizMode() {
           연습 퀴즈
         </button>
       </div>
-      {lane === "variation" ? <VariationQuiz /> : null}
-      {lane === "note" ? <WrongNote /> : null}
-      {lane === "photo" ? <PhotoQuiz /> : null}
+      {lane === "variation" ? <VariationQuiz key="variation" /> : null}
+      {lane === "note" ? <WrongNote key="note" /> : null}
+      {lane === "photo" ? <PhotoQuiz key="photo" /> : null}
       {lane === "drill" ? (
-      <>
+      <div className="drill-quiz" key="drill">
       <header className="quiz-score">
         <div>
           <p className="kicker">무작위 퀴즈</p>
@@ -104,7 +104,7 @@ export function QuizMode() {
         />
       ) : null}
       {quiz.kind === "speed" ? (
-        <SpeedPlay key={quiz.id} quiz={quiz} phase={phase} locked={phase !== "play"} onPick={(kind) => finish(kind === quiz.figure)} onTimeout={() => finish(false)} />
+        <SpeedPlay key={`play-${quiz.id}`} quiz={quiz} phase={phase} locked={phase !== "play"} onPick={(kind) => finish(kind === quiz.figure)} onTimeout={() => finish(false)} />
       ) : null}
       {quiz.kind === "members" ? (
         <MemberPlay
@@ -122,11 +122,11 @@ export function QuizMode() {
         />
       ) : null}
       {phase === "explain" ? (
-        <ExplainDock key={quiz.id} paused={paused} onPause={() => setPaused((value) => !value)} onNext={goNext}>
+        <ExplainDock key={`explain-${quiz.id}`} paused={paused} onPause={() => setPaused((value) => !value)} onNext={goNext}>
           <Explanation quiz={quiz} />
         </ExplainDock>
       ) : null}
-      </>
+      </div>
       ) : null}
     </div>
   );
