@@ -215,9 +215,9 @@ test("변형 문제의 보기는 계산기 축력과 같다", () => {
     const analysis = analyze(question.model);
     assert.equal(analysis.status, "ok", question.id);
     if (question.expect.kind === "axial") {
-      const force = analysis.forces.find((item) => item.memberId === question.expect.memberId);
-      assert.ok(force, question.id);
-      assert.ok(Math.abs(force.axial - question.expect.axial) < 0.05, `${question.id} ${force?.axial}`);
+      const { memberId, axial } = question.expect;
+      const force = analysis.forces.find((item) => item.memberId === memberId);
+      assert.ok(force && Math.abs(force.axial - axial) < 0.05, `${question.id} ${force?.axial}`);
     }
     if (question.expect.kind === "compression") {
       const count = analysis.forces.filter((force) => force.mode === "compression").length;
