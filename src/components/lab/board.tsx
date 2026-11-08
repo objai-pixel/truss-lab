@@ -13,6 +13,7 @@ export type BoardPick = {
   supportNodeId: number | null;
   weightId: number | null;
   grid: { x: number; y: number } | null;
+  ground: { x: number; z: number } | null;
 };
 
 export type BoardSelection =
@@ -45,6 +46,8 @@ type Props = {
   showGrid?: boolean;
   scene?: SceneId;
   selected?: BoardSelection | null;
+  focusNodeId?: number | null;
+  focusMemberIds?: number[];
   onPick?: (pick: BoardPick) => void;
   onHoverMember?: (memberId: number | null, point: { x: number; y: number } | null) => void;
 };
@@ -121,7 +124,7 @@ export function Board(props: Props) {
       gridX >= 0 && gridX <= COLS && gridY >= 0 && gridY <= ROWS && Math.hypot(gridX - structural.x, gridY - structural.y) < 0.34
         ? { x: gridX, y: gridY }
         : null;
-    return { nodeId, memberId, supportNodeId, weightId, grid };
+    return { nodeId, memberId, supportNodeId, weightId, grid, ground: null };
   }
 
   const loadByNode = new Map<number, number>();
@@ -190,6 +193,7 @@ export function Board(props: Props) {
           analysis={props.analysis}
           failed={failed.has(member.id)}
           hot={props.hoverMemberId === member.id}
+          focused={props.focusMemberIds?.includes(member.id) ?? false}
           picked={props.selected?.kind === "member" && props.selected.id === member.id}
         />
       ))}
@@ -238,6 +242,7 @@ export function Board(props: Props) {
           node={node}
           fill={`url(#${stoneId})`}
           pending={props.pendingNodeId === node.id}
+          focused={props.focusNodeId === node.id}
           fixed={props.fixedNodeIds?.includes(node.id) ?? false}
           onPath={(props.carPath ?? []).includes(node.id)}
           picked={props.selected?.kind === "node" && props.selected.id === node.id}
@@ -280,6 +285,7 @@ function MemberLine({
   analysis,
   failed,
   hot,
+  focused,
   picked,
 }: {
   member: Member;
@@ -287,6 +293,7 @@ function MemberLine({
   analysis: Analysis | null;
   failed: boolean;
   hot: boolean;
+  focused: boolean;
   picked: boolean;
 }) {
   const a = nodes.find((node) => node.id === member.i);
@@ -312,6 +319,7 @@ function MemberLine({
   return (
     <g className={failed ? "member failed" : "member"}>
       <line x1={p.sx} y1={p.sy} x2={q.sx} y2={q.sy} stroke="transparent" strokeWidth="18" />
+      {focused ? <line x1={p.sx} y1={p.sy} x2={q.sx} y2={q.sy} className="focus-member" /> : null}
       {picked ? <line x1={p.sx} y1={p.sy} x2={q.sx} y2={q.sy} className="pick-member" /> : null}
       <line
         x1={p.sx}
@@ -334,6 +342,7 @@ function NodeStone({
   node,
   fill,
   pending,
+  focused,
   fixed,
   onPath,
   picked,
@@ -341,6 +350,7 @@ function NodeStone({
   node: Node;
   fill: string;
   pending: boolean;
+  focused: boolean;
   fixed: boolean;
   onPath: boolean;
   picked: boolean;
@@ -348,6 +358,7 @@ function NodeStone({
   const screen = toScreen(node.x, node.y);
   return (
     <g className="stone">
+      {focused ? <circle cx={screen.sx} cy={screen.sy} r="20" className="focus-ring" /> : null}
       {picked ? <circle cx={screen.sx} cy={screen.sy} r="18" className="pick-ring" /> : null}
       {pending || onPath ? <circle cx={screen.sx} cy={screen.sy} r="16" className="stone-ring" /> : null}
       <circle cx={screen.sx} cy={screen.sy} r="11" fill={fill} stroke={fixed ? "#1d4e89" : "#1a120c"} strokeWidth={fixed ? 2.4 : 1.5} />

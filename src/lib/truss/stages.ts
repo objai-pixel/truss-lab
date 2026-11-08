@@ -15,7 +15,12 @@ export type Stage = {
   supports: Support[];
   staticLoads: StageLoad[];
   car: { road: number[]; weight: number; samples: number } | null;
+  /** 책 하중 경진. 재료 팔레트와 채점이 일반 단계와 다르다. */
+  contest?: boolean;
+  bookNodeId?: number;
 };
+
+export const BOOK_NEWTON = 20;
 
 /** 계곡 배경의 왼쪽·오른쪽 언덕이 만나는 교대. 그림과 초기 절점이 이 좌표를 함께 쓴다. */
 export const VALLEY_LEFT = 2;
@@ -183,6 +188,30 @@ export const STAGES: Stage[] = [
     ],
     staticLoads: [{ nodeId: 3, fx: 0, fy: -50, label: "돌 50N" }],
     car: { road: [1, 2, 3, 4, 5], weight: 120, samples: 16 },
+  },
+  {
+    id: 8,
+    title: "책 하중 경진",
+    kicker: "경진 · 책 하중",
+    budget: 120,
+    contest: true,
+    bookNodeId: 3,
+    story:
+      "폭 6m 책상입니다. 왼쪽은 핀, 오른쪽은 수직 롤러이고, 한가운데 절점에 책을 올립니다. 종이, 스파게티, 수수깡만 쓸 수 있습니다. 종이는 인장만 받고, 면과 수수깡은 길수록 압축에서 좌굴합니다.",
+    objective: "삼각형으로 하중을 나누고, 더 적은 재료비로 책을 버티세요. 점수는 견딘 무게 ÷ 재료비입니다.",
+    hint: "가운데 절점 위로 꼭짓점을 올리면 삼각형이 됩니다. 빗부재는 압축인 경우가 많아 종이를 쓰면 접힙니다. 스파게티와 수수깡은 길면 허용축력이 줄어드니 짧게 나누세요. 당기기만 하는 아래 부재에는 싼 종이를 쓰세요.",
+    nodes: [
+      { id: 1, x: 3, y: 0 },
+      { id: 2, x: 9, y: 0 },
+      { id: 3, x: 6, y: 0 },
+    ],
+    fixedNodeIds: [1, 2, 3],
+    supports: [
+      { nodeId: 1, type: "pin" },
+      { nodeId: 2, type: "rollerY" },
+    ],
+    staticLoads: [],
+    car: null,
   },
 ];
 

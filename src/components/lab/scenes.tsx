@@ -17,6 +17,7 @@ export const SCENES: Array<{ id: SceneId; label: string }> = [
 export function stageScene(stageId: number): SceneId {
   if (stageId === 4 || stageId === 7) return "road";
   if (stageId === 5) return "cliff";
+  if (stageId === 8) return "workshop";
   return "valley";
 }
 

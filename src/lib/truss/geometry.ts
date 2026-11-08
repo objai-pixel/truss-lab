@@ -13,18 +13,44 @@ export function unitToward(from: Node, to: Node): { cx: number; cy: number; leng
   return { cx: dx / length, cy: dy / length, length };
 }
 
-export function reactionCount(supports: Support[]): number {
-  return supports.reduce((sum, support) => sum + reactionAxes(support.type).length, 0);
+/** 절점에 z가 있거나 볼·홈 지점이 있으면 공간 트러스다. z를 생략한 평면 모델은 2자유도로 남는다. */
+export function isSpaceModel(model: { nodes: Node[]; loads: Load[]; supports: Support[] }): boolean {
+  if (model.supports.some((support) => support.type === "ball" || support.type === "slot")) return true;
+  if (model.nodes.some((node) => typeof node.z === "number")) return true;
+  return model.loads.some((load) => typeof load.fz === "number" && Math.abs(load.fz) > 1e-9);
+}
+
+export function unit3(from: Node, to: Node): { cx: number; cy: number; cz: number; length: number } | null {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dz = (to.z ?? 0) - (from.z ?? 0);
+  const length = Math.hypot(dx, dy, dz);
+  if (length < 1e-9) return null;
+  return { cx: dx / length, cy: dy / length, cz: dz / length, length };
+}
+
+export function reactionCount(supports: Support[], space = false): number {
+  return supports.reduce((sum, support) => sum + (space ? reactionAxes3(support.type).length : reactionAxes(support.type).length), 0);
 }
 
 export function reactionAxes(type: SupportType): Array<0 | 1> {
-  if (type === "pin") return [0, 1];
+  if (type === "pin" || type === "ball") return [0, 1];
+  if (type === "rollerY" || type === "slot") return [1];
+  return [0];
+}
+
+/** 0은 x, 1은 y, 2는 z. */
+export function reactionAxes3(type: SupportType): Array<0 | 1 | 2> {
+  if (type === "ball" || type === "pin") return [0, 1, 2];
+  if (type === "slot") return [1, 2];
   if (type === "rollerY") return [1];
   return [0];
 }
 
 export function supportLabel(type: SupportType): string {
   if (type === "pin") return "핀 지점";
+  if (type === "ball") return "볼 지점";
+  if (type === "slot") return "홈 지점";
   if (type === "rollerY") return "롤러 지점 (수직)";
   return "롤러 지점 (수평)";
 }
@@ -35,9 +61,10 @@ export function mergeLoads(loads: Load[]): Load[] {
     const current = map.get(load.nodeId) ?? { nodeId: load.nodeId, fx: 0, fy: 0 };
     current.fx += load.fx;
     current.fy += load.fy;
+    if (load.fz) current.fz = (current.fz ?? 0) + load.fz;
     map.set(load.nodeId, current);
   }
-  return [...map.values()].filter((load) => Math.hypot(load.fx, load.fy) > 1e-8);
+  return [...map.values()].filter((load) => Math.hypot(load.fx, load.fy, load.fz ?? 0) > 1e-8);
 }
 
 export type RoadSample = {

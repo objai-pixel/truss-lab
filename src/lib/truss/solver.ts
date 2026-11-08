@@ -1,9 +1,9 @@
-import { reactionAxes, reactionCount, unitToward } from "./geometry";
+import { isSpaceModel, reactionAxes, reactionCount, unitToward } from "./geometry";
 import { solveLinear } from "./linalg";
 import { materialOf } from "./materials";
-import type { Analysis, Load, MemberForce, Reaction, TrussModel } from "./types";
-
-const FORCE_EPS = 0.05;
+import { completeAnalysis } from "./result";
+import { analyzeSpace } from "./space";
+import type { Analysis, Load, Reaction, TrussModel } from "./types";
 
 function empty(status: Analysis["status"], message: string, classification: Analysis["classification"]): Analysis {
   return {
@@ -16,91 +16,7 @@ function empty(status: Analysis["status"], message: string, classification: Anal
     failures: [],
     counts: { j: 0, m: 0, r: 0 },
     loadOnSupportsOnly: false,
-  };
-}
-
-function finish(
-  model: TrussModel,
-  classification: Analysis["classification"],
-  method: Analysis["method"],
-  axials: number[],
-  reactions: Reaction[],
-  counts: Analysis["counts"],
-): Analysis {
-  const forces: MemberForce[] = [];
-  const failures: Analysis["failures"] = [];
-  for (let index = 0; index < model.members.length; index += 1) {
-    const member = model.members[index];
-    const material = materialOf(member.materialId);
-    const axial = axials[index];
-    let mode: MemberForce["mode"] = "zero";
-    let ratio = 0;
-    let overstressed = false;
-    let limit = 0;
-    if (axial > FORCE_EPS) {
-      mode = "tension";
-      limit = material.tension;
-      ratio = limit <= 0 ? Number.POSITIVE_INFINITY : axial / limit;
-      overstressed = axial > limit + FORCE_EPS;
-      if (overstressed) failures.push({ memberId: member.id, axial, limit, mode: "tension" });
-    } else if (axial < -FORCE_EPS) {
-      mode = "compression";
-      limit = material.compression;
-      ratio = limit <= 0 ? Number.POSITIVE_INFINITY : -axial / limit;
-      overstressed = -axial > limit + FORCE_EPS;
-      if (overstressed) {
-        failures.push({ memberId: member.id, axial, limit, mode: "compression" });
-      }
-    }
-    forces.push({
-      memberId: member.id,
-      axial,
-      allowTension: material.tension,
-      allowCompression: material.compression,
-      overstressed,
-      ratio,
-      mode,
-    });
-  }
-
-  const meaningful = model.loads.filter((load) => Math.hypot(load.fx, load.fy) > FORCE_EPS);
-  const loadOnSupportsOnly =
-    meaningful.length > 0 &&
-    meaningful.every((load) => model.supports.some((support) => support.nodeId === load.nodeId && support.type === "pin"));
-
-  if (failures.length > 0) {
-    const worst = [...failures].sort((a, b) => Math.abs(b.axial) / Math.max(b.limit, 0.01) - Math.abs(a.axial) / Math.max(a.limit, 0.01))[0];
-    const member = model.members.find((item) => item.id === worst.memberId);
-    const material = member ? materialOf(member.materialId) : null;
-    const kind = worst.mode === "tension" ? "인장" : "압축";
-    return {
-      status: "overstressed",
-      message: `${material?.name ?? "부재"} ${worst.memberId}번 부재가 ${kind} ${Math.abs(worst.axial).toFixed(1)}N을 받아 허용 ${worst.limit.toFixed(0)}N을 넘었습니다.`,
-      classification,
-      method,
-      forces,
-      reactions,
-      failures,
-      counts,
-      loadOnSupportsOnly,
-    };
-  }
-
-  let message = "모든 부재가 허용축력 안에 있습니다.";
-  if (meaningful.length === 0) message = "하중이 없습니다. 돌, 상자, 자동차를 올리면 축력이 생깁니다.";
-  else if (loadOnSupportsOnly) {
-    message = "하중이 핀 지점 위에만 있어 부재로 거의 전달되지 않습니다. 경간 사이의 절점에 올리세요.";
-  }
-  return {
-    status: "ok",
-    message,
-    classification,
-    method,
-    forces,
-    reactions,
-    failures,
-    counts,
-    loadOnSupportsOnly,
+    space: false,
   };
 }
 
@@ -299,6 +215,7 @@ function solveStiffness(model: TrussModel): Solved | null {
 }
 
 export function analyze(model: TrussModel): Analysis {
+  if (isSpaceModel(model)) return analyzeSpace(model);
   const problem = validate(model);
   const counts = {
     j: model.nodes.length,
@@ -359,7 +276,7 @@ export function analyze(model: TrussModel): Analysis {
         counts,
       };
     }
-    return finish(model, "determinate", "joints", joints.axials, joints.reactions, counts);
+    return completeAnalysis(model, "determinate", "joints", joints.axials, joints.reactions, counts);
   }
 
   const stiff = solveStiffness(model);
@@ -373,7 +290,7 @@ export function analyze(model: TrussModel): Analysis {
       counts,
     };
   }
-  return finish(model, stiff.classification, "stiffness", stiff.axials, stiff.reactions, counts);
+  return completeAnalysis(model, stiff.classification, "stiffness", stiff.axials, stiff.reactions, counts);
 }
 
 /** 정정 트러스에서 절점법과 강성법이 같은 축력을 내는지 검산할 때 쓴다. */

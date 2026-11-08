@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { designCost, evaluateDesign, type Trial } from "@/lib/truss/evaluate";
+import { designCost, evaluateContest, evaluateDesign, type Trial } from "@/lib/truss/evaluate";
 import { explain } from "@/lib/truss/explain";
 import { sampleRoad } from "@/lib/truss/geometry";
-import { MATERIALS } from "@/lib/truss/materials";
+import { CONTEST_MATERIALS, MATERIALS } from "@/lib/truss/materials";
 import { analyze } from "@/lib/truss/solver";
-import { STAGES, type Stage } from "@/lib/truss/stages";
+import { BOOK_NEWTON, STAGES, type Stage } from "@/lib/truss/stages";
 import type { Load, Member, Node } from "@/lib/truss/types";
 import { Board, type BoardPick, type BoardSelection } from "./board";
 import { COLS, ROWS } from "./grid";
@@ -34,6 +34,8 @@ export function Practice() {
   const [cleared, setCleared] = useState<number[]>([]);
   const [sceneChoice, setSceneChoice] = useState<SceneId | "mission">("mission");
   const [gridLock, setGridLock] = useState(false);
+  const [books, setBooks] = useState(1);
+  const [bestScore, setBestScore] = useState<number | null>(null);
   const carRef = useRef(0);
 
   useEffect(() => {
@@ -49,6 +51,21 @@ export function Practice() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem("truss-lab-contest-best");
+    if (!raw) return;
+    const score = Number(raw);
+    if (Number.isFinite(score)) setBestScore(score);
+  }, []);
+
+  useEffect(() => {
+    if (stage.contest) {
+      if (!CONTEST_MATERIALS.some((item) => item.id === materialId)) setMaterialId("skewer");
+      return;
+    }
+    if (!MATERIALS.some((item) => item.id === materialId)) setMaterialId("wood");
+  }, [stage, materialId]);
 
   useEffect(() => {
     if (phase !== "run") return;
@@ -71,15 +88,18 @@ export function Practice() {
   }, [phase, targetT]);
 
   const cost = designCost(build.nodes, build.members);
-  const liveLoads = useMemo(() => loadsAt(stage, build.nodes, phase === "build" ? null : carT), [stage, build.nodes, phase, carT]);
+  const liveLoads = useMemo(
+    () => loadsAt(stage, build.nodes, phase === "build" ? null : carT, books),
+    [stage, build.nodes, phase, carT, books],
+  );
   const analysis = useMemo(
     () => analyze({ nodes: build.nodes, members: build.members, supports: stage.supports, loads: phase === "build" ? [] : liveLoads }),
     [build, stage.supports, liveLoads, phase],
   );
-  const shownLoads = phase === "build" ? stage.staticLoads : liveLoads;
+  const shownLoads = phase === "build" && !stage.contest ? stage.staticLoads : liveLoads;
   const carSample = stage.car && phase !== "build" ? sampleRoad(build.nodes, stage.car.road, stage.car.weight, carT, stage.staticLoads) : null;
   const storyAnalysis = phase === "done" && trial?.worst ? trial.worst.analysis : analysis;
-  const storyLoads = phase === "done" && trial?.worst ? loadsAt(stage, build.nodes, trial.worst.t) : liveLoads;
+  const storyLoads = phase === "done" && trial?.worst ? loadsAt(stage, build.nodes, trial.worst.t, books) : liveLoads;
   const explanation = phase === "build" ? null : explain(
     { nodes: build.nodes, members: build.members, supports: stage.supports, loads: storyLoads },
     storyAnalysis,
@@ -96,6 +116,7 @@ export function Practice() {
     setHint(false);
     setSelected(null);
     setNote("");
+    setBooks(1);
   }
 
   const removeSelection = useCallback((target: BoardSelection) => {
@@ -182,8 +203,12 @@ export function Practice() {
   }, [selected, removeSelection]);
 
   function runTest() {
-    const result = evaluateDesign(stage, build.nodes, build.members);
+    const result = stage.contest ? evaluateContest(stage, build.nodes, build.members, books) : evaluateDesign(stage, build.nodes, build.members);
     setTrial(result);
+    if (result.passed && stage.contest && result.score > (bestScore ?? -1)) {
+      setBestScore(result.score);
+      window.localStorage.setItem("truss-lab-contest-best", String(result.score));
+    }
     if (result.passed) {
       const next = Array.from(new Set([...cleared, stage.id]));
       setCleared(next);
@@ -200,6 +225,7 @@ export function Practice() {
     }
   }
 
+  const palette = stage.contest ? CONTEST_MATERIALS : MATERIALS;
   const hoverMember = build.members.find((member) => member.id === hoverId) ?? null;
   const tip = phase === "build" ? null : hoverText(analysis, hoverMember);
   const scene = sceneChoice === "mission" ? stageScene(stage.id) : sceneChoice;
@@ -224,7 +250,33 @@ export function Practice() {
         </p>
         <p className={cost > stage.budget ? "over-budget" : "budget"}>
           예산 {cost.toFixed(1)} / {stage.budget}
+          {stage.contest && trial?.passed ? ` · 점수 ${trial.score.toFixed(2)}` : ""}
         </p>
+        {stage.contest ? (
+          <div className="contest-card">
+            <strong>
+              책 {books}권 · {books * BOOK_NEWTON}N
+            </strong>
+            <div className="row-actions">
+              <button type="button" onClick={() => setBooks((value) => Math.max(1, value - 1))} disabled={phase === "run" || books <= 1}>
+                한 권 빼기
+              </button>
+              <button type="button" onClick={() => setBooks((value) => Math.min(12, value + 1))} disabled={phase === "run" || books >= 12}>
+                한 권 더
+              </button>
+            </div>
+            <p>모형에서 책 1권은 {BOOK_NEWTON}N입니다. 한가운데 고정 절점에 실립니다.</p>
+            {bestScore !== null ? <p>이 브라우저 최고 점수 {bestScore.toFixed(2)}</p> : null}
+            <p>실물 대회</p>
+            <ol>
+              <li>두 지지대 사이에 경간을 둡니다.</li>
+              <li>종이, 스파게티, 수수깡을 삼각형이 되게 잇고, 이음은 절점에만 둡니다.</li>
+              <li>책은 부재 중간이 아니라 절점 위에 올립니다.</li>
+              <li>한 권씩 더하고, 처음 부러지거나 접히는 부재에서 멈춥니다.</li>
+              <li>점수는 버틴 책 무게를 재료비로 나눈 값입니다.</li>
+            </ol>
+          </div>
+        ) : null}
         <div className="tool-grid">
           {(
             [
@@ -251,13 +303,13 @@ export function Practice() {
         )}
         {note ? <p className="note">{note}</p> : null}
         <div className="materials">
-          {MATERIALS.map((material) => (
+          {palette.map((material) => (
             <button key={material.id} type="button" className={materialId === material.id ? "on" : ""} onClick={() => setMaterialId(material.id)}>
               <i style={{ background: material.color }} />
               <span>
                 <strong>{material.name}</strong>
                 <small>
-                  인 {material.tension} / 압 {material.compression} · {material.costPerM}/m
+                  인 {material.tension} / 압 {material.buckling ? `${material.compression}N·짧을 때` : material.compression} · {material.costPerM}/m
                 </small>
               </span>
             </button>
@@ -366,7 +418,10 @@ function fresh(stage: Stage): { nodes: Node[]; members: Member[]; nextId: number
   return { nodes: stage.nodes.map((node) => ({ ...node })), members: [], nextId: 100 };
 }
 
-function loadsAt(stage: Stage, nodes: Node[], t: number | null): Load[] {
+function loadsAt(stage: Stage, nodes: Node[], t: number | null, books: number): Load[] {
+  if (stage.contest && stage.bookNodeId) {
+    return [{ nodeId: stage.bookNodeId, fx: 0, fy: -Math.max(1, books) * BOOK_NEWTON }];
+  }
   const extra: Load[] = stage.staticLoads.map(({ nodeId, fx, fy }) => ({ nodeId, fx, fy }));
   if (!stage.car || t === null) return extra;
   return sampleRoad(nodes, stage.car.road, stage.car.weight, t, extra)?.loads ?? extra;

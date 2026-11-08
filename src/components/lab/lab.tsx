@@ -11,15 +11,15 @@ type Mode = "calc" | "practice" | "quiz";
 const MODES: Record<Mode, { label: string; copy: string }> = {
   calc: {
     label: "트러스 계산기",
-    copy: "절점과 부재를 자유롭게 놓고 축력을 확인합니다. 절점을 놓을 때 격자가 나타납니다.",
+    copy: "절점과 부재를 놓고 축력을 확인합니다. 공간 모드에서는 세 방향 힘과 계산 과정을 함께 봅니다.",
   },
   practice: {
     label: "실습",
-    copy: "단계마다 주어진 예산 안에서 트러스를 설계합니다. 배경은 미션에 맞추거나 직접 고를 수 있습니다.",
+    copy: "예산 안에서 단계별 미션을 설계합니다. 마지막 단계는 종이·스파게티·수수깡으로 책 하중을 버티는 경진입니다.",
   },
   quiz: {
     label: "퀴즈",
-    copy: "재료, 트러스 형식, 인장·압축 부재를 무작위로 묻습니다. 해설을 보면 다음 문제가 이어집니다.",
+    copy: "기출과 같은 풀이법의 변형 문제, 사진 형식 문제, 재료 연습이 있습니다. 힌트는 원할 때 열고, 풀이는 답을 확인한 뒤에 나옵니다.",
   },
 };
 
@@ -93,20 +93,20 @@ function Gate({ onOpen }: { onOpen: (mode: Mode) => void }) {
         <button type="button" className="gate-card" onClick={() => onOpen("calc")}>
           <GateTruss />
           <span className="kicker">01</span>
-          <strong>트러스 계산기</strong>
-          <span>절점을 놓고 부재를 이어 축력과 파괴를 확인합니다.</span>
+            <strong>트러스 계산기</strong>
+            <span>절점을 놓고 부재를 이어 축력과 계산 과정을 확인합니다. 공간 모드도 있습니다.</span>
         </button>
         <button type="button" className="gate-card" onClick={() => onOpen("practice")}>
           <GateSpan />
           <span className="kicker">02</span>
-          <strong>실습</strong>
-          <span>예산 안에서 단계별 미션 트러스를 설계합니다.</span>
+            <strong>실습</strong>
+            <span>예산 안에서 단계별 미션을 설계하고, 책 하중 경진도 합니다.</span>
         </button>
         <button type="button" className="gate-card" onClick={() => onOpen("quiz")}>
           <GateQuiz />
           <span className="kicker">03</span>
           <strong>퀴즈</strong>
-          <span>재료와 트러스 형식, 인장·압축 부재를 무작위로 확인합니다.</span>
+          <span>단면법과 영부재 변형 문제, 사진으로 읽는 형식, 재료 연습을 풉니다. 힌트는 원할 때 열고, 풀이는 답을 확인한 뒤에 나옵니다.</span>
         </button>
       </div>
     </section>

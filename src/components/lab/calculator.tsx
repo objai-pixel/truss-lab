@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { TRIPOD } from "@/lib/truss/examples";
 import { mergeLoads, sampleRoad } from "@/lib/truss/geometry";
 import { explain } from "@/lib/truss/explain";
 import { MATERIALS } from "@/lib/truss/materials";
@@ -8,10 +9,11 @@ import { analyze } from "@/lib/truss/solver";
 import type { Load, Member, Node, Support, SupportType } from "@/lib/truss/types";
 import { Board, type BoardPick, type BoardSelection, type BoardWeight } from "./board";
 import { COLS, ROWS } from "./grid";
-import { ExplanationView, ForceReport, hoverText } from "./report";
+import { ForceReport, hoverText, SolutionWalk } from "./report";
 import { ScenePicker, type SceneId } from "./scenes";
+import { SpaceBoard } from "./space-board";
 
-type Tool = "select" | "node" | "member" | "erase" | "pin" | "roller" | "weight" | "car";
+type Tool = "select" | "node" | "member" | "erase" | "pin" | "roller" | "weight" | "car" | "ball" | "slot";
 
 const WEIGHTS = [
   { id: "pebble", name: "작은 돌", newton: 30 },
@@ -45,7 +47,10 @@ export function Calculator() {
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const [coord, setCoord] = useState({ x: "4", y: "2" });
   const [banner, setBanner] = useState("절점 도구를 고르면 격자가 나타납니다. 집 모양 예제로 바로 축력을 볼 수도 있습니다.");
-  const [showExplain, setShowExplain] = useState(false);
+  const [showExplain, setShowExplain] = useState(true);
+  const [space, setSpace] = useState(false);
+  const [height, setHeight] = useState("2");
+  const [walkIndex, setWalkIndex] = useState(0);
 
   const loads = useMemo(() => buildLoads(nodes, weights, carPath, carWeight, carT), [nodes, weights, carPath, carWeight, carT]);
   const analysis = useMemo(
@@ -55,6 +60,10 @@ export function Calculator() {
   const carPoint = carPath.length >= 2 ? sampleRoad(nodes, carPath, carWeight, carT) : null;
   const car = carPoint ? { x: carPoint.x, y: carPoint.y } : null;
   const explanation = analysis ? explain({ nodes, members, supports, loads }, analysis) : null;
+  const structureKey = JSON.stringify({ nodes, members, supports, weights, carPath, carWeight, space });
+  useEffect(() => {
+    setWalkIndex(0);
+  }, [structureKey]);
 
   useEffect(() => {
     if (!playing) return;
@@ -82,7 +91,23 @@ export function Calculator() {
     return () => cancelAnimationFrame(frame);
   }, [playing, nodes, members, supports, weights, carPath, carWeight]);
 
-  function addNode(x: number, y: number) {
+  function addNode(x: number, y: number, z?: number) {
+    if (space) {
+      const depth = z ?? 0;
+      if (x < -2 || x > 10 || y < 0 || y > 8 || depth < -4 || depth > 4) {
+        setBanner("공간 좌표는 x -2~10, y 0~8, z -4~4 입니다.");
+        return;
+      }
+      if (nodes.some((node) => Math.hypot(node.x - x, node.y - y, (node.z ?? 0) - depth) < 0.15)) {
+        setBanner("그 자리에는 이미 절점이 있습니다.");
+        return;
+      }
+      const node = { id: nextId, x: round1(x), y: round1(y), z: round1(depth) };
+      setNodes((current) => [...current, node]);
+      setNextId((current) => current + 1);
+      setBanner(`절점 ${node.id}을 (${node.x}, ${node.y}, ${node.z})에 놓았습니다.`);
+      return;
+    }
     if (x < 0 || x > COLS || y < 0 || y > ROWS) {
       setBanner("좌표는 0부터 가로 12, 세로 8 칸 안이어야 합니다.");
       return;
@@ -153,20 +178,23 @@ export function Calculator() {
       if (target) removeSelection(target);
       return;
     }
-    if (tool === "node" && inputMode === "grid" && pick.grid && pick.nodeId === null) addNode(pick.grid.x, pick.grid.y);
+    if (tool === "node" && space && pick.ground && pick.nodeId === null) addNode(pick.ground.x, Number(height) || 0, pick.ground.z);
+    if (tool === "node" && !space && inputMode === "grid" && pick.grid && pick.nodeId === null) addNode(pick.grid.x, pick.grid.y);
     if (tool === "member" && pick.nodeId !== null) {
       if (pending === null) setPending(pick.nodeId);
       else if (pending === pick.nodeId) setPending(null);
       else addMember(pending, pick.nodeId);
     }
-    if (tool === "pin" && pick.nodeId !== null) toggleSupport(pick.nodeId, "pin");
+    if (tool === "pin" && !space && pick.nodeId !== null) toggleSupport(pick.nodeId, "pin");
+    if (tool === "ball" && pick.nodeId !== null) toggleSupport(pick.nodeId, "ball");
+    if (tool === "slot" && pick.nodeId !== null) toggleSupport(pick.nodeId, "slot");
     if (tool === "roller" && pick.nodeId !== null) toggleSupport(pick.nodeId, "rollerY");
     if (tool === "weight" && pick.nodeId !== null) {
       const item = { id: nextId, nodeId: pick.nodeId, weightId };
       setWeights((current) => [...current, item]);
       setNextId((current) => current + 1);
     }
-    if (tool === "car" && pick.nodeId !== null) {
+    if (tool === "car" && !space && pick.nodeId !== null) {
       setCarPath((current) => [...current, pick.nodeId!]);
       carTRef.current = 0;
       setCarT(0);
@@ -178,7 +206,28 @@ export function Calculator() {
     }
   }
 
+  function switchSpace(next: boolean) {
+    if (next === space) return;
+    setSpace(next);
+    setNodes([]);
+    setMembers([]);
+    setSupports([]);
+    setWeights([]);
+    setCarPath([]);
+    setPlaying(false);
+    carTRef.current = 0;
+    setCarT(0);
+    setPending(null);
+    setSelected(null);
+    setNextId(1);
+    setWalkIndex(0);
+    setShowExplain(true);
+    setTool("node");
+    setBanner(next ? "공간 모드입니다. 바닥 격자에 절점을 놓고 높이를 정하세요. 빈 곳을 끌면 시점이 돕니다." : "평면 모드입니다. 절점을 놓고 부재를 이으세요.");
+  }
+
   function loadExample() {
+    setSpace(false);
     setNodes([
       { id: 1, x: 2, y: 0 },
       { id: 2, x: 6, y: 0 },
@@ -201,8 +250,28 @@ export function Calculator() {
     setNextId(8);
     setPending(null);
     setSelected(null);
-    setBanner("마루의 60N은 빗변을 압축하고 밑변을 인장합니다. 부재에 마우스를 올려 보세요.");
+    setBanner("마루의 60N은 빗변을 압축하고 밑변을 인장합니다. 오른쪽 계산 과정에서 절점 순서를 넘기세요.");
     setShowExplain(true);
+    setWalkIndex(0);
+  }
+
+  function loadTripod() {
+    setSpace(true);
+    setNodes(TRIPOD.nodes.map((node) => ({ ...node })));
+    setMembers(TRIPOD.members.map((member) => ({ ...member })));
+    setSupports(TRIPOD.supports.map((support) => ({ ...support })));
+    setWeights([{ id: 8, nodeId: 4, weightId: "stone" }]);
+    setCarPath([]);
+    setPlaying(false);
+    carTRef.current = 0;
+    setCarT(0);
+    setNextId(9);
+    setPending(null);
+    setSelected(null);
+    setTool("select");
+    setShowExplain(true);
+    setWalkIndex(0);
+    setBanner("삼각대입니다. 꼭대기 60N을 세 다리가 나눠 압축으로 받습니다. 계산 과정에서 ΣFz까지 확인하세요.");
   }
 
   function clearAll() {
@@ -240,31 +309,52 @@ export function Calculator() {
   const hoverMember = members.find((member) => member.id === hoverId) ?? null;
   const tip = hoverText(analysis, hoverMember);
   const showGrid = gridLock || tool === "node" || inputMode === "coord";
+  const focusStep = showExplain && explanation && walkIndex > 0 ? explanation.steps[walkIndex - 1] : null;
+  const tools: Array<[Tool, string]> = space
+    ? [
+        ["select", "선택"],
+        ["node", "절점"],
+        ["member", "부재"],
+        ["erase", "지우기"],
+        ["ball", "볼"],
+        ["roller", "수직 롤러"],
+        ["slot", "홈"],
+        ["weight", "하중"],
+      ]
+    : [
+        ["select", "선택"],
+        ["node", "절점"],
+        ["member", "부재"],
+        ["erase", "지우기"],
+        ["pin", "핀"],
+        ["roller", "롤러"],
+        ["weight", "하중"],
+        ["car", "자동차"],
+      ];
 
   return (
     <div className="workspace">
       <aside className="panel tools">
         <div className="segmented">
-          <button type="button" className={inputMode === "grid" ? "on" : ""} onClick={() => setInputMode("grid")}>
-            격자
+          <button type="button" className={space ? "" : "on"} onClick={() => switchSpace(false)}>
+            평면
           </button>
-          <button type="button" className={inputMode === "coord" ? "on" : ""} onClick={() => setInputMode("coord")}>
-            좌표
+          <button type="button" className={space ? "on" : ""} onClick={() => switchSpace(true)}>
+            공간
           </button>
         </div>
+        {space ? null : (
+          <div className="segmented">
+            <button type="button" className={inputMode === "grid" ? "on" : ""} onClick={() => setInputMode("grid")}>
+              격자
+            </button>
+            <button type="button" className={inputMode === "coord" ? "on" : ""} onClick={() => setInputMode("coord")}>
+              좌표
+            </button>
+          </div>
+        )}
         <div className="tool-grid">
-          {(
-            [
-              ["select", "선택"],
-              ["node", "절점"],
-              ["member", "부재"],
-              ["erase", "지우기"],
-              ["pin", "핀"],
-              ["roller", "롤러"],
-              ["weight", "하중"],
-              ["car", "자동차"],
-            ] as Array<[Tool, string]>
-          ).map(([id, label]) => (
+          {tools.map(([id, label]) => (
             <button key={id} type="button" className={tool === id ? "on" : ""} onClick={() => setTool(id)}>
               {label}
             </button>
@@ -302,6 +392,27 @@ export function Calculator() {
             </button>
           ))}
         </div>
+        {space ? (
+          <label className="coord-form">
+            새 절점 높이 y
+            <input value={height} onChange={(event) => setHeight(event.target.value)} inputMode="decimal" />
+            <p className="muted">바닥 격자를 누르면 이 높이에 절점이 놓입니다. x는 경간, z는 깊이입니다.</p>
+          </label>
+        ) : null}
+        {space && selected?.kind === "node" ? (
+          <label className="coord-form">
+            선택 절점 높이
+            <input
+              inputMode="decimal"
+              value={String(nodes.find((node) => node.id === selected.id)?.y ?? 0)}
+              onChange={(event) => {
+                const y = Number(event.target.value);
+                if (!Number.isFinite(y)) return;
+                setNodes((current) => current.map((node) => (node.id === selected.id ? { ...node, y } : node)));
+              }}
+            />
+          </label>
+        ) : null}
         {tool === "weight" ? (
           <div className="choice-row">
             {WEIGHTS.map((weight) => (
@@ -311,7 +422,7 @@ export function Calculator() {
             ))}
           </div>
         ) : null}
-        {tool === "car" ? (
+        {!space && tool === "car" ? (
           <label className="slider">
             자동차 {carWeight}N
             <input
@@ -349,7 +460,7 @@ export function Calculator() {
             </span>
           </label>
         ) : null}
-        {inputMode === "coord" ? (
+        {!space && inputMode === "coord" ? (
           <form
             className="coord-form"
             onSubmit={(event) => {
@@ -378,48 +489,76 @@ export function Calculator() {
             <button type="button" onClick={loadExample}>
               집 모양 예제
             </button>
+            <button type="button" onClick={loadTripod}>
+              삼각대 예제
+            </button>
             <button type="button" onClick={clearAll}>
               비우기
             </button>
           </span>
         </div>
-        <div className="board-options">
-          <ScenePicker
-            value={scene}
-            onChange={(next) => {
-              if (next !== "mission") setScene(next);
+        {space ? null : (
+          <div className="board-options">
+            <ScenePicker
+              value={scene}
+              onChange={(next) => {
+                if (next !== "mission") setScene(next);
+              }}
+            />
+            <button
+              type="button"
+              className={gridLock ? "on" : ""}
+              aria-pressed={gridLock}
+              title="절점을 놓을 때는 격자가 항상 보입니다. 다른 도구에서도 보려면 켜 두세요."
+              onClick={() => setGridLock((value) => !value)}
+            >
+              격자 항상 표시
+            </button>
+          </div>
+        )}
+        {space ? (
+          <SpaceBoard
+            nodes={nodes}
+            members={members}
+            supports={supports}
+            loads={loads}
+            analysis={analysis}
+            weights={boardWeights}
+            pendingNodeId={pending}
+            hoverMemberId={hoverId}
+            selected={selected}
+            focusNodeId={focusStep?.nodeId ?? null}
+            focusMemberIds={focusStep?.unknownIds ?? []}
+            onPick={onPick}
+            onHoverMember={(id, point) => {
+              setHoverId(id);
+              setPointer(point);
             }}
           />
-          <button
-            type="button"
-            className={gridLock ? "on" : ""}
-            aria-pressed={gridLock}
-            title="절점을 놓을 때는 격자가 항상 보입니다. 다른 도구에서도 보려면 켜 두세요."
-            onClick={() => setGridLock((value) => !value)}
-          >
-            격자 항상 표시
-          </button>
-        </div>
-        <Board
-          nodes={nodes}
-          members={members}
-          supports={supports}
-          loads={[]}
-          analysis={analysis}
-          weights={boardWeights}
-          car={car}
-          carPath={carPath}
-          pendingNodeId={pending}
-          hoverMemberId={hoverId}
-          showGrid={showGrid}
-          scene={scene}
-          selected={selected}
-          onPick={onPick}
-          onHoverMember={(id, point) => {
-            setHoverId(id);
-            setPointer(point);
-          }}
-        />
+        ) : (
+          <Board
+            nodes={nodes}
+            members={members}
+            supports={supports}
+            loads={[]}
+            analysis={analysis}
+            weights={boardWeights}
+            car={car}
+            carPath={carPath}
+            pendingNodeId={pending}
+            hoverMemberId={hoverId}
+            showGrid={showGrid}
+            scene={scene}
+            selected={selected}
+            focusNodeId={focusStep?.nodeId ?? null}
+            focusMemberIds={focusStep?.unknownIds ?? []}
+            onPick={onPick}
+            onHoverMember={(id, point) => {
+              setHoverId(id);
+              setPointer(point);
+            }}
+          />
+        )}
         {tip && pointer ? (
           <div className="tooltip" style={{ left: pointer.x + 14, top: pointer.y + 14 }}>
             {tip.split("\n").map((line) => (
@@ -431,9 +570,9 @@ export function Calculator() {
       <aside className="panel readout">
         <ForceReport analysis={analysis} members={members} activeId={hoverId} onPick={setHoverId} />
         <button type="button" className="text-button" onClick={() => setShowExplain((value) => !value)} disabled={!explanation}>
-          {showExplain ? "해설 접기" : "이 트러스의 절점법 해설"}
+          {showExplain ? "계산 과정 접기" : "계산 과정 보기"}
         </button>
-        {showExplain && explanation ? <ExplanationView explanation={explanation} /> : null}
+        {showExplain && explanation ? <SolutionWalk explanation={explanation} index={walkIndex} onIndex={setWalkIndex} /> : null}
       </aside>
     </div>
   );

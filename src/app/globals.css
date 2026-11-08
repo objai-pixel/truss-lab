@@ -308,7 +308,36 @@ input[type="text"], input:not([type="range"]) {
 .quiz-node { fill: #f7f1e6; stroke: #1a120c; }
 .quiz-member { cursor: pointer; }
 .bins button, .options button { min-width: 140px; padding: 0.8rem 1rem; }
+.photo-quiz { display: grid; gap: 12px; }
+.photo-frame { margin: 0; background: #efe6d6; border-radius: 18px; overflow: hidden; }
+.photo-frame img { display: block; width: 100%; max-height: 460px; object-fit: contain; }
+.photo-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.photo-choice.on { outline: 2px solid var(--brass); }
+.photo-choice.right { background: #d9ead3; }
+.photo-choice.wrong { background: #f8d9d4; }
+.hint-box { margin: 0; padding: 8px 10px; border-radius: 12px; background: #f3e4c8; }
+.photo-quiz .explain-card ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+.photo-quiz .explain-card li { margin: 0.35rem 0; }
+.variation-figure { width: 100%; height: auto; background: #f4ead8; }
+.variation-member { stroke: #2a2118; stroke-width: 3; stroke-linecap: round; }
+.variation-member.focus { stroke: #c45512; stroke-width: 5; }
+.variation-member.tension { stroke: #1d4e89; stroke-width: 4; }
+.variation-member.compression { stroke: #9c2f2f; stroke-width: 4; }
+.variation-member.zero { stroke: #8a8175; stroke-width: 2.2; stroke-dasharray: 5 4; }
+.variation-load { stroke: #1d4e89; fill: #1d4e89; font-size: 12px; }
+.variation-support { fill: none; stroke: #2a2118; stroke-width: 1.5; }
+.variation-joint { fill: #f7f1e6; stroke: #1a120c; }
+.variation-label { font-size: 13px; fill: #2a2118; }
 .explain-card { padding: 16px 18px; }
+.walk-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0; }
+.focus-member { stroke: #e7a04a; stroke-width: 14; stroke-linecap: round; opacity: 0.85; }
+.focus-ring { fill: none; stroke: #c45512; stroke-width: 2.4; }
+.contest-card { background: #f7f1e4; border-radius: 12px; padding: 8px 10px; margin: 8px 0 12px; }
+.contest-card p, .contest-card ol { margin: 0.35rem 0; }
+.contest-card ol { padding-left: 1.15rem; }
+.space-board { cursor: grab; }
+.arrow { stroke: #1d4e89; fill: #1d4e89; stroke-width: 1.6; }
+.reaction .arrow { stroke: #6a6258; fill: #6a6258; }
 
 .modal-back {
   position: fixed;

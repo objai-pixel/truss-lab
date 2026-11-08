@@ -16,6 +16,8 @@ export type Material = {
   color: string;
   role: MaterialRole;
   summary: string;
+  /** 기준 길이보다 긴 부재는 압축 허용이 (기준/길이)^지수 로 줄어든다. */
+  buckling?: { referenceLength: number; exponent: number };
 };
 
 export const MATERIALS: Material[] = [
@@ -105,9 +107,57 @@ export const MATERIALS: Material[] = [
   },
 ];
 
+/** 책 하중 경진에서만 고를 수 있다. 실습 1–7단계 팔레트에는 넣지 않는다. */
+export const CONTEST_MATERIALS: Material[] = [
+  {
+    id: "paper",
+    name: "종이",
+    tension: 80,
+    compression: 0,
+    costPerM: 1,
+    E: 2,
+    A: 0.15,
+    color: "#f4efe4",
+    role: "tension",
+    summary: "당길 때만 힘이 생깁니다. 누르면 접히므로 압축 허용은 0입니다.",
+  },
+  {
+    id: "spaghetti",
+    name: "스파게티",
+    tension: 28,
+    compression: 36,
+    costPerM: 2,
+    E: 4,
+    A: 0.3,
+    color: "#e4d2a4",
+    role: "compression",
+    summary: "짧은 면은 압축을 조금 받습니다. 길면 좌굴로 허용이 급감합니다.",
+    buckling: { referenceLength: 2, exponent: 2 },
+  },
+  {
+    id: "skewer",
+    name: "수수깡",
+    tension: 48,
+    compression: 70,
+    costPerM: 3,
+    E: 12,
+    A: 0.7,
+    color: "#c4a15a",
+    role: "compression",
+    summary: "면보다 압축에 세지만 긴 부재는 마찬가지로 좌굴합니다.",
+    buckling: { referenceLength: 2.5, exponent: 2 },
+  },
+];
+
 export const MATERIAL_MAP: Record<string, Material> = Object.fromEntries(
-  MATERIALS.map((material) => [material.id, material]),
+  [...MATERIALS, ...CONTEST_MATERIALS].map((material) => [material.id, material]),
 );
+
+export function compressionCapacity(material: Material, length: number): number {
+  const rule = material.buckling;
+  if (!rule || !(length > rule.referenceLength)) return material.compression;
+  return material.compression * (rule.referenceLength / length) ** rule.exponent;
+}
 
 export function materialOf(id: string): Material {
   const material = MATERIAL_MAP[id];

@@ -29,7 +29,7 @@ export function ForceReport({
       </div>
       <p>{analysis.message}</p>
       <p className="muted">
-        j={analysis.counts.j}, m={analysis.counts.m}, r={analysis.counts.r}. 정정 조건은 m + r = 2j 입니다.
+        j={analysis.counts.j}, m={analysis.counts.m}, r={analysis.counts.r}. 정정 조건은 m + r = {analysis.space ? "3j" : "2j"} 입니다.
       </p>
       {analysis.forces.length > 0 ? (
         <ul className="force-list">
@@ -101,6 +101,70 @@ export function ExplanationView({ explanation }: { explanation: Explanation }) {
   );
 }
 
+export function SolutionWalk({
+  explanation,
+  index,
+  onIndex,
+}: {
+  explanation: Explanation;
+  index: number;
+  onIndex: (next: number) => void;
+}) {
+  const last = explanation.steps.length;
+  const at = Math.max(0, Math.min(index, last));
+  const step = at === 0 ? null : explanation.steps[at - 1];
+  return (
+    <article className="explain">
+      <h3>{explanation.title}</h3>
+      <p>{explanation.summary}</p>
+      <div className="walk-bar">
+        <button type="button" onClick={() => onIndex(at - 1)} disabled={at === 0}>
+          이전
+        </button>
+        <span>
+          {at === 0 ? "정정과 반력" : `절점 ${step?.nodeId}`} · {at + 1} / {last + 1}
+        </span>
+        <button type="button" onClick={() => onIndex(at + 1)} disabled={at >= last}>
+          다음
+        </button>
+      </div>
+      {step ? (
+        <section>
+          <p>{step.intro}</p>
+          {step.known.length > 0 ? <p className="muted">{step.known.join(" · ")}</p> : null}
+          {step.equations.map((equation) => (
+            <p key={equation} className="eq">
+              {equation}
+            </p>
+          ))}
+          <ul>
+            {step.results.map((result) => (
+              <li key={result}>{result}</li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <>
+          <p>{explanation.determinacy}</p>
+          {explanation.reactions.length > 0 ? (
+            <ol>
+              {explanation.reactions.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ol>
+          ) : null}
+        </>
+      )}
+      {at === last
+        ? explanation.leftover.map((line) => (
+            <p key={line}>{line}</p>
+          ))
+        : null}
+      {at === last ? <p className="note">{explanation.note}</p> : null}
+    </article>
+  );
+}
+
 function statusLabel(status: Analysis["status"]): string {
   if (status === "ok") return "안전";
   if (status === "overstressed") return "파괴";
@@ -126,7 +190,7 @@ export function hoverText(analysis: Analysis | null, member: Member | null): str
   }
   const force = analysis.forces.find((item) => item.memberId === member.id);
   if (!force || !material) return null;
-  const allow = force.axial >= 0 ? material.tension : material.compression;
+  const allow = force.axial >= 0 ? force.allowTension : force.allowCompression;
   const ratio = allow <= 0 ? "허용 없음" : `허용 ${allow.toFixed(0)}N의 ${(Math.abs(force.axial) / allow * 100).toFixed(0)}%`;
   return `부재 ${member.id} · ${material.name}\n${formatForce(force.axial)}\n${ratio}`;
 }

@@ -3,12 +3,16 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MaterialArt, TrussArt } from "./art";
 import { analyze } from "@/lib/truss/solver";
+import { PhotoQuiz } from "./photo-quiz";
+import { VariationQuiz } from "./variation-quiz";
 import { TRUSS_GUIDE, createQuiz, type MemberQuiz, type Quiz, type SortQuiz, type SpeedQuiz } from "@/lib/truss/quiz";
 import type { TrussModel } from "@/lib/truss/types";
 
 type Bin = "tension" | "compression";
+type Lane = "variation" | "photo" | "drill";
 
 export function QuizMode() {
+  const [lane, setLane] = useState<Lane>("variation");
   const [quiz, setQuiz] = useState<Quiz>(() => createQuiz());
   const [phase, setPhase] = useState<"play" | "explain">("play");
   const [correctCount, setCorrectCount] = useState(0);
@@ -48,6 +52,21 @@ export function QuizMode() {
 
   return (
     <div className="quiz-layout">
+      <div className="segmented">
+        <button type="button" className={lane === "variation" ? "on" : ""} onClick={() => setLane("variation")}>
+          변형 문제
+        </button>
+        <button type="button" className={lane === "photo" ? "on" : ""} onClick={() => setLane("photo")}>
+          사진 문제
+        </button>
+        <button type="button" className={lane === "drill" ? "on" : ""} onClick={() => setLane("drill")}>
+          연습 퀴즈
+        </button>
+      </div>
+      {lane === "variation" ? <VariationQuiz /> : null}
+      {lane === "photo" ? <PhotoQuiz /> : null}
+      {lane === "drill" ? (
+      <>
       <header className="quiz-score">
         <div>
           <p className="kicker">무작위 퀴즈</p>
@@ -94,6 +113,8 @@ export function QuizMode() {
         <ExplainDock key={quiz.id} paused={paused} onPause={() => setPaused((value) => !value)} onNext={goNext}>
           <Explanation quiz={quiz} />
         </ExplainDock>
+      ) : null}
+      </>
       ) : null}
     </div>
   );

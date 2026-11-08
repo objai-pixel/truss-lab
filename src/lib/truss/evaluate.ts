@@ -1,7 +1,7 @@
 import { sampleRoad } from "./geometry";
 import { MATERIALS, materialOf } from "./materials";
 import { analyze } from "./solver";
-import type { Stage } from "./stages";
+import { BOOK_NEWTON, type Stage } from "./stages";
 import type { Analysis, Load, Member, Node, TrussModel } from "./types";
 
 export type CaseResult = {
@@ -18,13 +18,14 @@ export type Trial = {
   detail: string;
   cases: CaseResult[];
   worst: CaseResult | null;
+  score: number;
 };
 
 export function memberLength(nodes: Node[], member: Member): number {
   const a = nodes.find((node) => node.id === member.i);
   const b = nodes.find((node) => node.id === member.j);
   if (!a || !b) return 0;
-  return Math.hypot(b.x - a.x, b.y - a.y);
+  return Math.hypot(b.x - a.x, b.y - a.y, (b.z ?? 0) - (a.z ?? 0));
 }
 
 export function designCost(nodes: Node[], members: Member[]): number {
@@ -46,6 +47,7 @@ export function evaluateDesign(stage: Stage, nodes: Node[], members: Member[]): 
       detail: `사용 ${cost.toFixed(1)} / 예산 ${budget}. 부재를 줄이거나 더 싼 재료로 바꾸세요. 케이블은 인장 전용이라 쌀 때가 많습니다.`,
       cases: [],
       worst: null,
+      score: 0,
     };
   }
 
@@ -59,6 +61,7 @@ export function evaluateDesign(stage: Stage, nodes: Node[], members: Member[]): 
       detail: "자동차가 지나갈 절점이 빠져 있습니다.",
       cases: [],
       worst: null,
+      score: 0,
     };
   }
 
@@ -79,19 +82,48 @@ export function evaluateDesign(stage: Stage, nodes: Node[], members: Member[]): 
       detail: `${failed.label}: ${failed.analysis.message}`,
       cases: results,
       worst: failed,
+      score: 0,
     };
   }
 
+  const weight = stage.staticLoads.reduce((sum, load) => sum + Math.max(0, -load.fy), 0);
+  const score = stage.contest && cost > 0.05 ? weight / cost : 0;
   const peak = worst ? `가장 큰 사용률은 ${worst.label}에서 ${peakRatio(worst.analysis).toFixed(0)}%입니다.` : "";
+  const scoreText = stage.contest ? ` 점수 ${score.toFixed(2)} = 책 ${weight.toFixed(0)}N ÷ 재료비 ${cost.toFixed(1)}.` : "";
   return {
     passed: true,
     cost,
     budget,
     title: "견딥니다",
-    detail: `사용 비용 ${cost.toFixed(1)}, 예산 ${budget}. ${peak} 부재에 마우스를 올리면 그 하중 상태의 축력이 보입니다.`,
+    detail: `사용 비용 ${cost.toFixed(1)}, 예산 ${budget}. ${peak}${scoreText} 부재에 마우스를 올리면 그 하중 상태의 축력이 보입니다.`,
     cases: results,
     worst,
+    score,
   };
+}
+
+export function evaluateContest(stage: Stage, nodes: Node[], members: Member[], books: number): Trial {
+  if (!stage.contest || !stage.bookNodeId) {
+    return evaluateDesign(stage, nodes, members);
+  }
+  if (books < 1) {
+    return {
+      passed: false,
+      cost: designCost(nodes, members),
+      budget: stage.budget,
+      title: "책을 올려 주세요",
+      detail: "가운데 절점에 책을 한 권 이상 올린 뒤 시험하세요.",
+      cases: [],
+      worst: null,
+      score: 0,
+    };
+  }
+  const weighed: Stage = {
+    ...stage,
+    staticLoads: [{ nodeId: stage.bookNodeId, fx: 0, fy: -books * BOOK_NEWTON, label: `책 ${books}권 ${books * BOOK_NEWTON}N` }],
+    car: null,
+  };
+  return evaluateDesign(weighed, nodes, members);
 }
 
 function peakRatio(analysis: Analysis): number {

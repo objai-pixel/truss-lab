@@ -1,14 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { designCost, evaluateDesign } from "./evaluate";
+import { TRIPOD, tripodCompression } from "./examples";
+import { designCost, evaluateContest, evaluateDesign } from "./evaluate";
 import { explain } from "./explain";
 import { sampleRoad } from "./geometry";
 import { solveLinear } from "./linalg";
 import { createQuiz, QUIZ_PRESETS } from "./quiz";
+import { PHOTO_QUESTIONS } from "./photo-quiz";
+import { VARIATION_QUESTIONS } from "./variation";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { REFERENCES } from "./references";
 import { STAGES } from "./stages";
+import { spaceAxialByBothMethods, sumEquilibrium } from "./space";
 import { analyze, axialByBothMethods } from "./solver";
-import type { Member, TrussModel } from "./types";
+import type { Member, Node, TrussModel } from "./types";
 
 const triangle: TrussModel = {
   nodes: [
@@ -180,4 +187,124 @@ test("퀴즈 프리셋은 인장 부재와 압축 부재를 모두 가진다", (
   const quiz = createQuiz(() => 0);
   assert.equal(quiz.kind, "sort");
   assert.equal(quiz.kind === "sort" && quiz.cards.length, 4);
+});
+
+test("사진 문제는 문장과 힌트, 풀이가 있고 사진 파일이 있다", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const ids = new Set<string>();
+  assert.ok(PHOTO_QUESTIONS.length >= 10);
+  for (const question of PHOTO_QUESTIONS) {
+    assert.equal(ids.has(question.id), false);
+    ids.add(question.id);
+    assert.ok(question.ask.length > 20);
+    assert.ok(question.choices.includes(question.answer));
+    assert.equal(new Set(question.choices).size, question.choices.length);
+    assert.ok(question.hint.length > 8);
+    assert.ok(question.steps.length >= 3);
+    assert.equal(existsSync(join(root, "public", question.image.replace(/^\//, ""))), true, question.image);
+  }
+});
+
+test("변형 문제의 보기는 계산기 축력과 같다", () => {
+  assert.ok(VARIATION_QUESTIONS.length >= 6);
+  for (const question of VARIATION_QUESTIONS) {
+    assert.ok(question.choices.includes(question.answer));
+    assert.equal(new Set(question.choices).size, question.choices.length);
+    assert.ok(question.hint.length > 8);
+    assert.ok(question.steps.length >= 3);
+    const analysis = analyze(question.model);
+    assert.equal(analysis.status, "ok", question.id);
+    if (question.expect.kind === "axial") {
+      const force = analysis.forces.find((item) => item.memberId === question.expect.memberId);
+      assert.ok(force, question.id);
+      assert.ok(Math.abs(force.axial - question.expect.axial) < 0.05, `${question.id} ${force?.axial}`);
+    }
+    if (question.expect.kind === "compression") {
+      const count = analysis.forces.filter((force) => force.mode === "compression").length;
+      assert.equal(count, question.expect.count, question.id);
+    }
+    if (question.expect.kind === "zero") {
+      const count = analysis.forces.filter((force) => force.mode === "zero").length;
+      assert.equal(count, question.expect.count, question.id);
+    }
+  }
+});
+
+test("삼각대는 공간 절점법으로 P·L/(3h) 압축이고 평형이 맞다", () => {
+  const analysis = analyze(TRIPOD);
+  assert.equal(analysis.status, "ok");
+  assert.equal(analysis.method, "joints");
+  assert.equal(analysis.classification, "determinate");
+  const expected = tripodCompression();
+  for (const force of analysis.forces) {
+    assert.ok(Math.abs(force.axial + expected) < 0.02, `부재 ${force.memberId} = ${force.axial}`);
+  }
+  const balance = sumEquilibrium(TRIPOD, analysis.reactions);
+  assert.ok(Math.abs(balance.fx) < 0.02);
+  assert.ok(Math.abs(balance.fy) < 0.02);
+  assert.ok(Math.abs(balance.fz) < 0.02);
+  const both = spaceAxialByBothMethods(TRIPOD);
+  assert.ok(both);
+  both.joints.forEach((axial, index) => {
+    assert.ok(Math.abs(axial - both.stiffness[index]) < 0.05);
+  });
+  const story = explain(TRIPOD, analysis);
+  assert.match(story.determinacy, /3j/);
+  assert.match(JSON.stringify(story), /ΣFz/);
+  assert.equal(story.leftover.length, 0);
+  assert.ok(story.steps.length >= 1);
+  assert.ok(story.steps.every((step) => step.unknownIds.length > 0 && step.unknownIds.length <= 3));
+});
+
+test("평면에 눌린 삼각대는 기하학적으로 불안정하다", () => {
+  const flat = analyze({
+    ...TRIPOD,
+    nodes: TRIPOD.nodes.map((node) => (node.id === 4 ? { ...node, y: 0 } : node)),
+  });
+  assert.equal(flat.status, "unstable");
+});
+
+test("바닥 부재를 더한 삼각대는 부정정 강성법으로 푼다", () => {
+  const redundant = analyze({
+    ...TRIPOD,
+    members: [
+      ...TRIPOD.members,
+      { id: 8, i: 1, j: 2, materialId: "tube" },
+      { id: 9, i: 2, j: 3, materialId: "tube" },
+      { id: 10, i: 3, j: 1, materialId: "tube" },
+    ],
+  });
+  assert.equal(redundant.method, "stiffness");
+  assert.equal(redundant.classification, "indeterminate");
+  assert.notEqual(redundant.status, "unstable");
+  const balance = sumEquilibrium(TRIPOD, redundant.reactions);
+  assert.ok(Math.abs(balance.fy) < 0.05);
+});
+
+test("책 하중 경진은 짧은 수수깡은 통과하고 종이 압축재와 긴 스파게티는 실패한다", () => {
+  const stage = STAGES.find((item) => item.contest);
+  assert.ok(stage);
+  const nodes: Node[] = [
+    { id: 1, x: 3, y: 0 },
+    { id: 2, x: 9, y: 0 },
+    { id: 3, x: 6, y: 0 },
+    { id: 4, x: 6, y: 2 },
+  ];
+  const safe: Member[] = [
+    { id: 1, i: 1, j: 3, materialId: "paper" },
+    { id: 2, i: 3, j: 2, materialId: "paper" },
+    { id: 3, i: 1, j: 4, materialId: "skewer" },
+    { id: 4, i: 4, j: 2, materialId: "skewer" },
+    { id: 5, i: 3, j: 4, materialId: "paper" },
+  ];
+  const held = evaluateContest(stage, nodes, safe, 1);
+  assert.equal(held.passed, true, held.detail);
+  assert.ok(held.score > 0);
+  assert.ok(held.cost <= stage.budget);
+
+  const paper: Member[] = safe.map((member) => ({ ...member, materialId: "paper" }));
+  assert.equal(evaluateContest(stage, nodes, paper, 1).passed, false);
+
+  const spaghetti: Member[] = safe.map((member) => ({ ...member, materialId: member.id === 3 || member.id === 4 ? "spaghetti" : member.materialId }));
+  assert.equal(evaluateContest(stage, nodes, spaghetti, 1).passed, false);
 });
