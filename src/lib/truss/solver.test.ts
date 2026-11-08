@@ -145,6 +145,12 @@ test("절점법 해설이 삼각형 지붕의 인장 하현재를 보여 준다"
   assert.match(text, /인장/);
   assert.match(text, /압축/);
   assert.equal(story.leftover.length, 0);
+  const loaded = story.steps.find((step) => step.nodeId === 3);
+  assert.ok(loaded);
+  assert.match(loaded.intro, /하중/);
+  assert.match(loaded.equations.join(" "), /하중/);
+  assert.match(loaded.equations.join(" "), /100/);
+  assert.equal(story.steps[0]?.nodeId, 3);
 });
 
 test("자동차 하중은 인접 절점에만 나뉘고 합이 무게와 같다", () => {
@@ -271,7 +277,11 @@ test("삼각대는 공간 절점법으로 P·L/(3h) 압축이고 평형이 맞�
   assert.match(JSON.stringify(story), /ΣFz/);
   assert.equal(story.leftover.length, 0);
   assert.ok(story.steps.length >= 1);
-  assert.ok(story.steps.every((step) => step.unknownIds.length > 0 && step.unknownIds.length <= 3));
+  assert.ok(story.steps.filter((step) => step.unknownIds.length > 0).every((step) => step.unknownIds.length <= 3));
+  const apex = story.steps.find((step) => step.nodeId === 4);
+  assert.ok(apex);
+  assert.match(apex.intro, /하중/);
+  assert.match(apex.equations.join(" "), /하중/);
 });
 
 test("평면에 눌린 삼각대는 기하학적으로 불안정하다", () => {

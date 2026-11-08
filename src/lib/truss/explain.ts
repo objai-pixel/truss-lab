@@ -46,6 +46,21 @@ function signedTerm(coeff: number, name: string, first: boolean): string {
   return `${coeff < 0 ? "- " : "+ "}${magnitude} ${name}`;
 }
 
+function loadPhrase(fx: number, fy: number, fz = 0): string | null {
+  const parts: string[] = [];
+  if (Math.abs(fx) > 0.05) parts.push(fx > 0 ? `오른쪽 ${fmt(fx)} N` : `왼쪽 ${fmt(-fx)} N`);
+  if (Math.abs(fy) > 0.05) parts.push(fy > 0 ? `위쪽 ${fmt(fy)} N` : `아래쪽 ${fmt(-fy)} N`);
+  if (Math.abs(fz) > 0.05) parts.push(fz > 0 ? `깊이 방향 ${fmt(fz)} N` : `앞쪽 ${fmt(-fz)} N`);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+function sumLine(axis: string, terms: { value: number; name: string }[]): string {
+  const visible = terms.filter((term) => Math.abs(term.value) >= 0.05);
+  if (visible.length === 0) return `Σ${axis} = 0: 0 = 0`;
+  const body = visible.map((term, index) => signedTerm(term.value, term.name, index === 0)).join(" ");
+  return `Σ${axis} = 0: ${body} = 0`;
+}
+
 export function explain(model: TrussModel, analysis: Analysis): Explanation {
   const space = isSpaceModel(model);
   const title = analysis.method === "joints" ? "절점법 풀이" : analysis.method === "stiffness" ? "강성법 검산" : "구조 판정";
@@ -72,6 +87,7 @@ export function explain(model: TrussModel, analysis: Analysis): Explanation {
       ? "인장(+)은 부재가 절점을 끌어당기는 힘이고, 압축(-)은 절점을 미는 힘입니다. 각 절점에서 ΣFx = 0, ΣFy = 0 입니다."
       : "부정정 구조는 절점 평형식이 미지수보다 적습니다. 같은 모양이라도 케이블과 강관의 강성비에 따라 힘의 분담이 달라지므로, 변형 적합을 포함한 직접강성법으로 축력을 구했습니다. 정정으로 줄이면 아래 반력부터 절점법을 그대로 적용할 수 있습니다.";
   const walk = analysis.method === "joints" ? (space ? walkJoints3(model, analysis) : walkJoints(model, analysis)) : { steps: [], unsolved: [] as number[] };
+  const steps = [...walk.steps, ...loadReviews(model, analysis, new Set(walk.steps.map((step) => step.nodeId)))];
   const limit = space ? 4 : 3;
 
   return {
@@ -79,7 +95,7 @@ export function explain(model: TrussModel, analysis: Analysis): Explanation {
     summary: analysis.message,
     determinacy: determinacyText(analysis, space),
     reactions,
-    steps: walk.steps,
+    steps,
     leftover: walk.unsolved.map((id) => {
       const axial = analysis.forces.find((force) => force.memberId === id)?.axial ?? 0;
       return `부재 ${id}는 미지력이 ${limit}개 이상 남는 구간에 있어, 한 절점씩의 기본 순서로는 끝나지 않습니다. 연립한 결과는 ${formatForce(axial)} 입니다.`;
@@ -173,6 +189,10 @@ function walkJoints(model: TrussModel, analysis: Analysis): { steps: JointStep[]
 
   const known = new Set<number>();
   const steps: JointStep[] = [];
+  const hasLoad = (id: number) => {
+    const item = load.get(id);
+    return !!item && Math.hypot(item.fx, item.fy) > 0.05;
+  };
   let guard = 0;
   while (known.size < model.members.length && guard < 40) {
     guard += 1;
@@ -182,7 +202,7 @@ function walkJoints(model: TrussModel, analysis: Analysis): { steps: JointStep[]
         unknown: (membersAt.get(node.id) ?? []).filter((member) => !known.has(member.id)),
       }))
       .filter((item) => item.unknown.length > 0 && item.unknown.length <= 2)
-      .sort((a, b) => a.unknown.length - b.unknown.length || a.node.id - b.node.id);
+      .sort((a, b) => a.unknown.length - b.unknown.length || Number(hasLoad(b.node.id)) - Number(hasLoad(a.node.id)) || a.node.id - b.node.id);
 
     let progressed = false;
     for (const candidate of candidates) {
@@ -223,6 +243,7 @@ function solveJoint(
     knownLines.push(`외력 Fx = ${fmt(applied.fx)} N, Fy = ${fmt(applied.fy)} N`);
   }
 
+  const knownParts: { id: number; cx: number; cy: number; axial: number }[] = [];
   for (const member of knownMembers) {
     const otherId = member.i === node.id ? member.j : member.i;
     const other = nodes.get(otherId);
@@ -232,6 +253,7 @@ function solveJoint(
     const axial = force.get(member.id) ?? 0;
     rhsX -= axial * dir.cx;
     rhsY -= axial * dir.cy;
+    knownParts.push({ id: member.id, cx: dir.cx, cy: dir.cy, axial });
     knownLines.push(`부재 ${member.id} = ${formatForce(axial)}`);
   }
 
@@ -274,14 +296,15 @@ function solveJoint(
     if (Math.abs((solved?.[index] ?? 0) - official) > 0.8) return null;
   }
 
-  const equations = ["Fx", "Fy"].map((axis, axisIndex) => {
-    const parts = rows.map((row) => signedTerm(axisIndex === 0 ? row.cx : row.cy, `N${row.member.id}`, false));
-    const body = parts
-      .map((part, index) => (index === 0 ? part.replace(/^\+ /, "") : part))
-      .join(" ");
-    const rhs = axisIndex === 0 ? rhsX : rhsY;
-    return `Σ${axis} = 0 → ${body} = ${fmt(rhs)}`;
-  });
+  const phrase = loadPhrase(applied.fx, applied.fy);
+  const equations = phrase
+    ? loadedPlaneLines(rows, knownParts, applied, support, rhsX, rhsY)
+    : ["Fx", "Fy"].map((axis, axisIndex) => {
+        const parts = rows.map((row) => signedTerm(axisIndex === 0 ? row.cx : row.cy, `N${row.member.id}`, false));
+        const body = parts.map((part, index) => (index === 0 ? part.replace(/^\+ /, "") : part)).join(" ");
+        const rhs = axisIndex === 0 ? rhsX : rhsY;
+        return `Σ${axis} = 0 → ${body} = ${fmt(rhs)}`;
+      });
 
   const results = unknown.map((member, index) => {
     const axial = force.get(member.id) ?? solved?.[index] ?? 0;
@@ -297,8 +320,9 @@ function solveJoint(
 
   return {
     nodeId: node.id,
-    intro:
-      unknown.length === 1
+    intro: phrase
+      ? `절점 ${node.id}에 ${phrase} 하중이 있습니다. 부재가 절점을 밀거나 당기는 힘과 이 하중을 더해 ΣFx = 0, ΣFy = 0을 맞춥니다.`
+      : unknown.length === 1
         ? `절점 ${node.id}에는 미지 부재가 1개라 ΣFx, ΣFy 중 계수 큰 식으로 바로 구할 수 있습니다.`
         : `절점 ${node.id}에는 미지 부재가 2개입니다. ΣFx = 0과 ΣFy = 0을 연립합니다.`,
     known: knownLines,
@@ -329,6 +353,10 @@ function walkJoints3(model: TrussModel, analysis: Analysis): { steps: JointStep[
 
   const known = new Set<number>();
   const steps: JointStep[] = [];
+  const hasLoad = (id: number) => {
+    const item = load.get(id);
+    return !!item && Math.hypot(item.fx, item.fy, item.fz) > 0.05;
+  };
   let guard = 0;
   while (known.size < model.members.length && guard < 40) {
     guard += 1;
@@ -338,7 +366,7 @@ function walkJoints3(model: TrussModel, analysis: Analysis): { steps: JointStep[
         unknown: (membersAt.get(node.id) ?? []).filter((member) => !known.has(member.id)),
       }))
       .filter((item) => item.unknown.length > 0 && item.unknown.length <= 3)
-      .sort((a, b) => a.unknown.length - b.unknown.length || a.node.id - b.node.id);
+      .sort((a, b) => a.unknown.length - b.unknown.length || Number(hasLoad(b.node.id)) - Number(hasLoad(a.node.id)) || a.node.id - b.node.id);
 
     let progressed = false;
     for (const candidate of candidates) {
@@ -384,6 +412,7 @@ function solveJoint3(
     knownLines.push(`외력 Fx = ${fmt(applied.fx)} N, Fy = ${fmt(applied.fy)} N, Fz = ${fmt(applied.fz)} N`);
   }
 
+  const knownParts: { id: number; cx: number; cy: number; cz: number; axial: number }[] = [];
   for (const member of knownMembers) {
     const otherId = member.i === node.id ? member.j : member.i;
     const other = nodes.get(otherId);
@@ -394,6 +423,7 @@ function solveJoint3(
     rhs[0] -= axial * dir.cx;
     rhs[1] -= axial * dir.cy;
     rhs[2] -= axial * dir.cz;
+    knownParts.push({ id: member.id, cx: dir.cx, cy: dir.cy, cz: dir.cz, axial });
     knownLines.push(`부재 ${member.id} = ${formatForce(axial)}`);
   }
 
@@ -414,11 +444,14 @@ function solveJoint3(
     if (Math.abs(solved[index] - official) > 0.8) return null;
   }
 
-  const equations = ["Fx", "Fy", "Fz"].map((axis, axisIndex) => {
-    const parts = coeffs.map((row) => signedTerm(component(row, axisIndex), `N${row.member.id}`, false));
-    const body = parts.map((part, index) => (index === 0 ? part.replace(/^\+ /, "") : part)).join(" ");
-    return `Σ${axis} = 0 → ${body} = ${fmt(rhs[axisIndex])}`;
-  });
+  const phrase = loadPhrase(applied.fx, applied.fy, applied.fz);
+  const equations = phrase
+    ? loadedSpaceLines(coeffs, knownParts, applied, support, rhs)
+    : ["Fx", "Fy", "Fz"].map((axis, axisIndex) => {
+        const parts = coeffs.map((row) => signedTerm(component(row, axisIndex), `N${row.member.id}`, false));
+        const body = parts.map((part, index) => (index === 0 ? part.replace(/^\+ /, "") : part)).join(" ");
+        return `Σ${axis} = 0 → ${body} = ${fmt(rhs[axisIndex])}`;
+      });
   const results = unknown.map((member, index) => {
     const axial = force.get(member.id) ?? solved[index] ?? 0;
     const material = materialOf(member.materialId);
@@ -430,8 +463,9 @@ function solveJoint3(
     const ratio = allow <= 0 ? "허용 없음" : `허용 ${allow.toFixed(0)} N의 ${Math.min(999, (Math.abs(axial) / allow) * 100).toFixed(0)}%`;
     return `부재 ${member.id} (${material.name}) = ${formatForce(axial)} · ${kind === "영부재" ? "힘이 거의 없습니다." : ratio}`;
   });
-  const intro =
-    unknown.length === 1
+  const intro = phrase
+    ? `절점 ${node.id}에 ${phrase} 하중이 있습니다. 세 방향 부재력과 이 하중을 더해 ΣFx = 0, ΣFy = 0, ΣFz = 0을 맞춥니다.`
+    : unknown.length === 1
       ? `절점 ${node.id}에는 미지 부재가 1개라 ΣFx, ΣFy, ΣFz 중 계수 큰 식으로 바로 구할 수 있습니다.`
       : unknown.length === 2
         ? `절점 ${node.id}에는 미지 부재가 2개입니다. 서로 독립인 두 평형식을 연립하고 나머지 식으로 검산합니다.`
@@ -473,4 +507,165 @@ function solveUpTo3(rows: { cx: number; cy: number; cz: number }[], rhs: [number
   }
   const matrix = [0, 1, 2].map((axis) => rows.map((row) => component(row, axis)));
   return solveLinear(matrix, rhs);
+}
+
+function reducedLine(axis: string, rows: { value: number; name: string }[], rhs: number): string {
+  if (rows.length === 0) return "";
+  const body = rows.map((row, index) => signedTerm(row.value, row.name, index === 0)).join(" ");
+  return `${axis}에서 하중과 이미 아는 힘을 넘기면 ${body} = ${fmt(rhs)}`;
+}
+
+function loadedPlaneLines(
+  rows: { member: Member; cx: number; cy: number }[],
+  knownParts: { id: number; cx: number; cy: number; axial: number }[],
+  applied: { fx: number; fy: number },
+  support: { rx: number; ry: number },
+  rhsX: number,
+  rhsY: number,
+): string[] {
+  const lines: string[] = [];
+  const axes = [
+    { name: "Fx", key: "cx" as const, load: applied.fx, reaction: support.rx, rhs: rhsX },
+    { name: "Fy", key: "cy" as const, load: applied.fy, reaction: support.ry, rhs: rhsY },
+  ];
+  for (const axis of axes) {
+    const terms = [
+      ...rows.map((row) => ({ value: row[axis.key], name: `N${row.member.id}` })),
+      ...knownParts.map((part) => ({ value: part.axial * part[axis.key], name: `부재${part.id}` })),
+    ];
+    if (Math.abs(axis.reaction) > 0.05) terms.push({ value: axis.reaction, name: "반력" });
+    if (Math.abs(axis.load) > 0.05) terms.push({ value: axis.load, name: "하중" });
+    lines.push(sumLine(axis.name, terms));
+    const moved =
+      knownParts.some((part) => Math.abs(part.axial * part[axis.key]) > 0.05) ||
+      Math.abs(axis.reaction) > 0.05 ||
+      Math.abs(axis.load) > 0.05;
+    if (!moved) continue;
+    const reduced = reducedLine(
+      axis.name,
+      rows.map((row) => ({ value: row[axis.key], name: `N${row.member.id}` })),
+      axis.rhs,
+    );
+    if (reduced) lines.push(reduced);
+  }
+  return lines;
+}
+
+function loadedSpaceLines(
+  rows: { member: Member; cx: number; cy: number; cz: number }[],
+  knownParts: { id: number; cx: number; cy: number; cz: number; axial: number }[],
+  applied: { fx: number; fy: number; fz: number },
+  support: { rx: number; ry: number; rz?: number },
+  rhs: [number, number, number],
+): string[] {
+  const lines: string[] = [];
+  const axes = [
+    { name: "Fx", key: "cx" as const, load: applied.fx, reaction: support.rx, rhs: rhs[0] },
+    { name: "Fy", key: "cy" as const, load: applied.fy, reaction: support.ry, rhs: rhs[1] },
+    { name: "Fz", key: "cz" as const, load: applied.fz, reaction: support.rz ?? 0, rhs: rhs[2] },
+  ];
+  for (const axis of axes) {
+    const terms = [
+      ...rows.map((row) => ({ value: row[axis.key], name: `N${row.member.id}` })),
+      ...knownParts.map((part) => ({ value: part.axial * part[axis.key], name: `부재${part.id}` })),
+    ];
+    if (Math.abs(axis.reaction) > 0.05) terms.push({ value: axis.reaction, name: "반력" });
+    if (Math.abs(axis.load) > 0.05) terms.push({ value: axis.load, name: "하중" });
+    lines.push(sumLine(axis.name, terms));
+    const moved =
+      knownParts.some((part) => Math.abs(part.axial * part[axis.key]) > 0.05) ||
+      Math.abs(axis.reaction) > 0.05 ||
+      Math.abs(axis.load) > 0.05;
+    if (!moved) continue;
+    const reduced = reducedLine(
+      axis.name,
+      rows.map((row) => ({ value: row[axis.key], name: `N${row.member.id}` })),
+      axis.rhs,
+    );
+    if (reduced) lines.push(reduced);
+  }
+  return lines;
+}
+
+function loadReviews(model: TrussModel, analysis: Analysis, covered: Set<number>): JointStep[] {
+  const space = isSpaceModel(model);
+  const totals = new Map<number, { fx: number; fy: number; fz: number }>();
+  for (const node of model.nodes) totals.set(node.id, { fx: 0, fy: 0, fz: 0 });
+  for (const item of model.loads) {
+    const current = totals.get(item.nodeId);
+    if (!current) continue;
+    current.fx += item.fx;
+    current.fy += item.fy;
+    current.fz += item.fz ?? 0;
+  }
+  const force = new Map(analysis.forces.map((item) => [item.memberId, item.axial]));
+  const reaction = new Map(analysis.reactions.map((item) => [item.nodeId, item]));
+  const nodes = new Map(model.nodes.map((node) => [node.id, node]));
+  const steps: JointStep[] = [];
+  for (const node of model.nodes) {
+    const applied = totals.get(node.id);
+    if (!applied || Math.hypot(applied.fx, applied.fy, applied.fz) <= 0.05 || covered.has(node.id)) continue;
+    const phrase = loadPhrase(applied.fx, applied.fy, applied.fz);
+    if (!phrase) continue;
+    const support = reaction.get(node.id) ?? { rx: 0, ry: 0, rz: 0 };
+    const knownParts: { id: number; cx: number; cy: number; cz: number; axial: number }[] = [];
+    let closed = true;
+    for (const member of model.members) {
+      if (member.i !== node.id && member.j !== node.id) continue;
+      const other = nodes.get(member.i === node.id ? member.j : member.i);
+      if (!other) {
+        closed = false;
+        continue;
+      }
+      const axial = force.get(member.id);
+      if (axial === undefined) {
+        closed = false;
+        continue;
+      }
+      if (space) {
+        const dir = unit3(node, other);
+        if (!dir) {
+          closed = false;
+          continue;
+        }
+        knownParts.push({ id: member.id, cx: dir.cx, cy: dir.cy, cz: dir.cz, axial });
+      } else {
+        const dir = unitToward(node, other);
+        if (!dir) {
+          closed = false;
+          continue;
+        }
+        knownParts.push({ id: member.id, cx: dir.cx, cy: dir.cy, cz: 0, axial });
+      }
+    }
+    const axes = space
+      ? [
+          { name: "Fx", key: "cx" as const, load: applied.fx, reaction: support.rx },
+          { name: "Fy", key: "cy" as const, load: applied.fy, reaction: support.ry },
+          { name: "Fz", key: "cz" as const, load: applied.fz, reaction: support.rz ?? 0 },
+        ]
+      : [
+          { name: "Fx", key: "cx" as const, load: applied.fx, reaction: support.rx },
+          { name: "Fy", key: "cy" as const, load: applied.fy, reaction: support.ry },
+        ];
+    const equations = axes.map((axis) => {
+      const terms = knownParts.map((part) => ({ value: part.axial * part[axis.key], name: `부재${part.id}` }));
+      if (Math.abs(axis.reaction) > 0.05) terms.push({ value: axis.reaction, name: "반력" });
+      if (Math.abs(axis.load) > 0.05) terms.push({ value: axis.load, name: "하중" });
+      return sumLine(axis.name, terms);
+    });
+    steps.push({
+      nodeId: node.id,
+      intro: `절점 ${node.id}에 ${phrase} 하중이 있습니다. 이미 구한 부재력을 이 절점에 다시 모아 하중과 평형을 이루는지 확인합니다.`,
+      known: knownParts.map((part) => `부재 ${part.id} = ${formatForce(part.axial)}`),
+      equations,
+      results: [
+        closed
+          ? "각 방향의 합이 0이면 이 절점의 하중을 부재력이 받고 있습니다."
+          : "일부 부재력은 한 절점씩의 순서로 끝나지 않아, 이 검산에는 넣지 못했습니다.",
+      ],
+      unknownIds: [],
+    });
+  }
+  return steps;
 }
