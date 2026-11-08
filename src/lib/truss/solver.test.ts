@@ -7,7 +7,7 @@ import { sampleRoad } from "./geometry";
 import { solveLinear } from "./linalg";
 import { createQuiz, QUIZ_PRESETS } from "./quiz";
 import { PHOTO_QUESTIONS } from "./photo-quiz";
-import { VARIATION_QUESTIONS } from "./variation";
+import { createVariationSet, VARIATION_SET_SIZE } from "./variation";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -205,27 +205,45 @@ test("사진 문제는 문장과 힌트, 풀이가 있고 사진 파일이 있�
   }
 });
 
-test("변형 문제의 보기는 계산기 축력과 같다", () => {
-  assert.ok(VARIATION_QUESTIONS.length >= 6);
-  for (const question of VARIATION_QUESTIONS) {
-    assert.ok(question.choices.includes(question.answer));
-    assert.equal(new Set(question.choices).size, question.choices.length);
-    assert.ok(question.hint.length > 8);
-    assert.ok(question.steps.length >= 3);
-    const analysis = analyze(question.model);
-    assert.equal(analysis.status, "ok", question.id);
-    if (question.expect.kind === "axial") {
-      const { memberId, axial } = question.expect;
-      const force = analysis.forces.find((item) => item.memberId === memberId);
-      assert.ok(force && Math.abs(force.axial - axial) < 0.05, `${question.id} ${force?.axial}`);
-    }
-    if (question.expect.kind === "compression") {
-      const count = analysis.forces.filter((force) => force.mode === "compression").length;
-      assert.equal(count, question.expect.count, question.id);
-    }
-    if (question.expect.kind === "zero") {
-      const count = analysis.forces.filter((force) => force.mode === "zero").length;
-      assert.equal(count, question.expect.count, question.id);
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+test("변형 문제 세트는 6개이고 축력이 계산과 같으며 시드마다 달라진다", () => {
+  const sets = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) => createVariationSet(mulberry32(seed)));
+  const signatures = new Set(sets.map((set) => set.map((question) => `${question.id}:${question.answer}`).join("|")));
+  assert.ok(signatures.size >= 2);
+  for (const set of sets) {
+    assert.equal(set.length, VARIATION_SET_SIZE);
+    assert.equal(new Set(set.map((question) => question.id)).size, set.length);
+    for (const question of set) {
+      assert.equal(question.choices.length, 4);
+      assert.ok(question.choices.includes(question.answer));
+      assert.equal(new Set(question.choices).size, question.choices.length);
+      assert.ok(question.hint.length > 8);
+      assert.ok(question.steps.length >= 3);
+      const analysis = analyze(question.model);
+      assert.equal(analysis.status, "ok", question.id);
+      if (question.expect.kind === "axial") {
+        const { memberId, axial } = question.expect;
+        const force = analysis.forces.find((item) => item.memberId === memberId);
+        assert.ok(force && Math.abs(force.axial - axial) < 0.05, `${question.id} ${force?.axial}`);
+      }
+      if (question.expect.kind === "compression") {
+        const count = analysis.forces.filter((force) => force.mode === "compression").length;
+        assert.equal(count, question.expect.count, question.id);
+      }
+      if (question.expect.kind === "zero") {
+        const count = analysis.forces.filter((force) => force.mode === "zero").length;
+        assert.equal(count, question.expect.count, question.id);
+      }
     }
   }
 });

@@ -4,12 +4,13 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MaterialArt, TrussArt } from "./art";
 import { analyze } from "@/lib/truss/solver";
 import { PhotoQuiz } from "./photo-quiz";
-import { VariationQuiz } from "./variation-quiz";
+import { VariationQuiz, WrongNote } from "./variation-quiz";
+import { loadWrongs, subscribeWrongs } from "@/lib/truss/wrong-note";
 import { TRUSS_GUIDE, createQuiz, type MemberQuiz, type Quiz, type SortQuiz, type SpeedQuiz } from "@/lib/truss/quiz";
 import type { TrussModel } from "@/lib/truss/types";
 
 type Bin = "tension" | "compression";
-type Lane = "variation" | "photo" | "drill";
+type Lane = "variation" | "note" | "photo" | "drill";
 
 export function QuizMode() {
   const [lane, setLane] = useState<Lane>("variation");
@@ -23,6 +24,13 @@ export function QuizMode() {
   const [activeCard, setActiveCard] = useState<string | null>(null);
   const [picked, setPicked] = useState<number[]>([]);
   const answered = useRef(false);
+  const [wrongCount, setWrongCount] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => setWrongCount(loadWrongs().length);
+    refresh();
+    return subscribeWrongs(refresh);
+  }, []);
 
   function finish(ok: boolean) {
     if (answered.current) return;
@@ -56,6 +64,9 @@ export function QuizMode() {
         <button type="button" className={lane === "variation" ? "on" : ""} onClick={() => setLane("variation")}>
           변형 문제
         </button>
+        <button type="button" className={lane === "note" ? "on" : ""} onClick={() => setLane("note")}>
+          오답노트{wrongCount > 0 ? ` ${wrongCount}` : ""}
+        </button>
         <button type="button" className={lane === "photo" ? "on" : ""} onClick={() => setLane("photo")}>
           사진 문제
         </button>
@@ -64,6 +75,7 @@ export function QuizMode() {
         </button>
       </div>
       {lane === "variation" ? <VariationQuiz /> : null}
+      {lane === "note" ? <WrongNote /> : null}
       {lane === "photo" ? <PhotoQuiz /> : null}
       {lane === "drill" ? (
       <>

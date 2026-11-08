@@ -15,14 +15,14 @@ import { ScenePicker, stageScene, type SceneId } from "./scenes";
 
 type Tool = "select" | "node" | "member" | "erase";
 
-export function Practice() {
-  const [stageId, setStageId] = useState(1);
-  const stage = STAGES.find((item) => item.id === stageId) ?? STAGES[0];
+export function Practice({ stages = STAGES.filter((stage) => !stage.contest) }: { stages?: Stage[] }) {
+  const [stageId, setStageId] = useState(stages[0]?.id ?? 1);
+  const stage = stages.find((item) => item.id === stageId) ?? stages[0];
   const [build, setBuild] = useState(() => fresh(stage));
   const [tool, setTool] = useState<Tool>("node");
   const [selected, setSelected] = useState<BoardSelection | null>(null);
   const [note, setNote] = useState("");
-  const [materialId, setMaterialId] = useState("wood");
+  const [materialId, setMaterialId] = useState(stages[0]?.contest ? "skewer" : "wood");
   const [pending, setPending] = useState<number | null>(null);
   const [carT, setCarT] = useState(0);
   const [phase, setPhase] = useState<"build" | "run" | "done">("build");
@@ -234,14 +234,16 @@ export function Practice() {
   return (
     <div className="workspace">
       <aside className="panel tools">
-        <div className="stage-pills">
-          {STAGES.map((item) => (
-            <button key={item.id} type="button" className={item.id === stage.id ? "on" : ""} onClick={() => selectStage(item)}>
-              {item.id}
-              {cleared.includes(item.id) ? " ★" : ""}
-            </button>
-          ))}
-        </div>
+        {stages.length > 1 ? (
+          <div className="stage-pills">
+            {stages.map((item) => (
+              <button key={item.id} type="button" className={item.id === stage.id ? "on" : ""} onClick={() => selectStage(item)}>
+                {item.id}
+                {cleared.includes(item.id) ? " ★" : ""}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <p className="kicker">{stage.kicker}</p>
         <h2>{stage.title}</h2>
         <p>{stage.story}</p>
