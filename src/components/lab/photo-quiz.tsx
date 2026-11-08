@@ -71,7 +71,7 @@ export function PhotoQuiz() {
         </p>
       </header>
       <figure className="photo-frame">
-        <img src={question.image} alt={question.alt} />
+        <img src={`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}${question.image}`} alt={question.alt} />
       </figure>
       <div className="options photo-choices">
         {question.choices.map((choice) => {
