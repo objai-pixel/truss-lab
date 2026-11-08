@@ -1,15 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { STAGES } from "@/lib/truss/stages";
 import { Calculator } from "./calculator";
 import { Lesson } from "./lesson";
 import { Practice } from "./practice";
 import { QuizMode } from "./quiz-mode";
 
-type Mode = "calc" | "practice" | "contest" | "quiz";
-
-const CONTEST_STAGES = STAGES.filter((stage) => stage.contest);
+type Mode = "calc" | "practice" | "quiz";
 
 const MODES: Record<Mode, { label: string; copy: string }> = {
   calc: {
@@ -18,11 +15,7 @@ const MODES: Record<Mode, { label: string; copy: string }> = {
   },
   practice: {
     label: "실습",
-    copy: "예산 안에서 단계별 미션을 설계합니다.",
-  },
-  contest: {
-    label: "경진 대비",
-    copy: "종이, 스파게티, 수수깡으로 책 하중을 버티는 연습을 합니다. 점수는 견딘 무게를 재료비로 나눈 값입니다.",
+    copy: "예산 안에서 단계별 미션을 설계합니다. 마지막 단계는 종이·스파게티·수수깡으로 책 하중을 버티는 경진입니다.",
   },
   quiz: {
     label: "퀴즈",
@@ -32,10 +25,9 @@ const MODES: Record<Mode, { label: string; copy: string }> = {
 
 export function Lab() {
   const [mode, setMode] = useState<Mode | null>(null);
-  const [opened, setOpened] = useState<{ calc: boolean; practice: boolean; contest: boolean; quiz: boolean }>({
+  const [opened, setOpened] = useState<{ calc: boolean; practice: boolean; quiz: boolean }>({
     calc: false,
     practice: false,
-    contest: false,
     quiz: false,
   });
   const [lesson, setLesson] = useState(false);
@@ -78,11 +70,6 @@ export function Lab() {
           <Practice />
         </div>
       ) : null}
-      {opened.contest ? (
-        <div hidden={mode !== "contest"}>
-          <Practice stages={CONTEST_STAGES} />
-        </div>
-      ) : null}
       {opened.quiz ? (
         <div hidden={mode !== "quiz"}>
           <QuizMode />
@@ -117,17 +104,11 @@ function Gate({ onOpen }: { onOpen: (mode: Mode) => void }) {
           <GateSpan />
           <span className="kicker">02</span>
           <strong>실습</strong>
-          <span>예산 안에서 계곡, 도로, 절벽 미션을 설계합니다.</span>
-        </button>
-        <button type="button" className="gate-card" onClick={() => onOpen("contest")}>
-          <GateContest />
-          <span className="kicker">03</span>
-          <strong>경진 대비</strong>
-          <span>종이, 스파게티, 수수깡으로 책 하중을 버티는 연습을 따로 합니다.</span>
+          <span>예산 안에서 단계별 미션을 설계하고, 마지막에 책 하중 경진을 합니다.</span>
         </button>
         <button type="button" className="gate-card" onClick={() => onOpen("quiz")}>
           <GateQuiz />
-          <span className="kicker">04</span>
+          <span className="kicker">03</span>
           <strong>퀴즈</strong>
           <span>변형 문제는 6개씩 새로 나옵니다. 틀린 문제는 오답노트에 모이고, 사진 문제와 재료 연습도 있습니다.</span>
         </button>
@@ -159,22 +140,6 @@ function GateQuiz() {
       <path d="M152 64h28M152 52h18" />
       <path d="M96 70 L110 34 L124 70" />
       <circle cx="110" cy="34" r="3.5" />
-    </svg>
-  );
-}
-
-function GateContest() {
-  return (
-    <svg className="gate-art" viewBox="0 0 220 96" aria-hidden="true">
-      <path d="M28 74 H192" />
-      <path d="M28 74 L110 28 L192 74" />
-      <path d="M110 28 V74" />
-      <rect x="86" y="58" width="48" height="16" rx="2" className="gate-card-face" />
-      <path d="M86 66 H134" />
-      <circle cx="28" cy="74" r="4" />
-      <circle cx="110" cy="74" r="4" />
-      <circle cx="192" cy="74" r="4" />
-      <circle cx="110" cy="28" r="4" />
     </svg>
   );
 }

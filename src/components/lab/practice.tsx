@@ -15,7 +15,7 @@ import { ScenePicker, stageScene, type SceneId } from "./scenes";
 
 type Tool = "select" | "node" | "member" | "erase";
 
-export function Practice({ stages = STAGES.filter((stage) => !stage.contest) }: { stages?: Stage[] }) {
+export function Practice({ stages = STAGES }: { stages?: Stage[] }) {
   const [stageId, setStageId] = useState(stages[0]?.id ?? 1);
   const stage = stages.find((item) => item.id === stageId) ?? stages[0];
   const [build, setBuild] = useState(() => fresh(stage));
